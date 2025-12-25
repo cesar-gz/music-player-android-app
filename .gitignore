@@ -1,6 +1,7 @@
 # Gradle files
 .gradle/
 build/
+**/build/
 
 # Local configuration file (sdk path, etc)
 local.properties
@@ -32,3 +33,12 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+# Kotlin / Gradle local caches
+.kotlin/
+
+# Optional: OS noise
+.DS_Store
+Thumbs.db
+
+.vscode
