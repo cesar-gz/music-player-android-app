@@ -11,7 +11,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,22 +29,27 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -50,7 +58,10 @@ import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import com.example.strawhattunes.ui.theme.StrawHatTunesTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class Song(
     val id: Long,
@@ -58,6 +69,8 @@ data class Song(
     val artist: String?,
     val uri: android.net.Uri
 )
+
+enum class ViewMode { LIBRARY, PLAYLISTS, PLAYLIST_DETAIL }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -75,13 +88,22 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-
-
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SimpleMusicPlayerScreen() {
     val context = LocalContext.current
+    val db = remember { AppDb.get(context) }
+    val dao = remember { db.playlistDao() }
+    val scope = rememberCoroutineScope()
+    var playlists by remember { mutableStateOf<List<PlaylistEntity>>(emptyList()) }
+    var showCreatePlaylistDialog by remember { mutableStateOf(false) }
+    var newPlaylistName by remember { mutableStateOf("") }
+    var addToPlaylistSong by remember { mutableStateOf<Song?>(null) }
+    var viewMode by remember { mutableStateOf(ViewMode.LIBRARY) }
+    var selectedPlaylist by remember { mutableStateOf<PlaylistEntity?>(null) }
+    var playlistDetailSongs by remember { mutableStateOf<List<Song>>(emptyList()) }
+    var queueSongs by remember { mutableStateOf<List<Song>>(emptyList()) }
 
-    // Media3 player instance tied to this composable lifecycle.
     val player = remember {
         ExoPlayer.Builder(context).build()
     }
@@ -89,13 +111,30 @@ fun SimpleMusicPlayerScreen() {
         onDispose { player.release() }
     }
 
+    val setQueue = { newQueue: List<Song>, startIndex: Int?, autoPlay: Boolean ->
+        queueSongs = newQueue
+
+        val items = newQueue.map { MediaItem.fromUri(it.uri) }
+        player.setMediaItems(items)
+        player.prepare()
+
+        if (startIndex != null) {
+            player.seekTo(startIndex, 0)
+        }
+        if (autoPlay) player.play()
+    }
+
+
     val permission =
         if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO
         else Manifest.permission.READ_EXTERNAL_STORAGE
 
     var hasPermission by remember {
         mutableStateOf(
-            ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(
+                context,
+                permission
+            ) == PackageManager.PERMISSION_GRANTED
         )
     }
 
@@ -108,7 +147,6 @@ fun SimpleMusicPlayerScreen() {
     var songs by remember { mutableStateOf<List<Song>>(emptyList()) }
     var nowPlaying by remember { mutableStateOf<Song?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
-    val mediaItems = remember(songs) { songs.map { MediaItem.fromUri(it.uri) } }
 
     LaunchedEffect(Unit) {
         if (!hasPermission) permissionLauncher.launch(permission)
@@ -120,14 +158,12 @@ fun SimpleMusicPlayerScreen() {
         }
     }
 
-    // Poll playback position for a simple seek UI (good enough for a basic app).
-    var positionMs by remember { mutableStateOf(0L) }
-    var durationMs by remember { mutableStateOf(0L) }
+    var positionMs by remember { mutableLongStateOf(0L) }
+    var durationMs by remember { mutableLongStateOf(0L) }
 
-    LaunchedEffect(hasPermission, mediaItems) {
-        if (hasPermission && mediaItems.isNotEmpty() && player.mediaItemCount == 0) {
-            player.setMediaItems(mediaItems)
-            player.prepare()
+    LaunchedEffect(songs) {
+        if (songs.isNotEmpty() && queueSongs.isEmpty()) {
+            setQueue(songs, null, false)
         }
     }
 
@@ -137,21 +173,58 @@ fun SimpleMusicPlayerScreen() {
             durationMs = player.duration.coerceAtLeast(0L)
             isPlaying = player.isPlaying
             val index = player.currentMediaItemIndex
-            if (index >= 0 && index < songs.size) {
-                nowPlaying = songs[index]
+            if (index >= 0 && index < queueSongs.size) {
+                nowPlaying = queueSongs[index]
             }
 
             delay(250)
         }
     }
 
-    LaunchedEffect(songs) {
-        if (songs.isNotEmpty() && nowPlaying == null) nowPlaying = songs[0]
+    LaunchedEffect(queueSongs) {
+        if (queueSongs.isNotEmpty() && nowPlaying == null) {
+            nowPlaying = queueSongs[0]
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        playlists = withContext(Dispatchers.IO) { dao.getPlaylists() }
+    }
+
+    LaunchedEffect(selectedPlaylist?.playlistId) {
+        val pl = selectedPlaylist ?: return@LaunchedEffect
+
+        val rows = withContext(Dispatchers.IO) { dao.getSongsInPlaylist(pl.playlistId) }
+        val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+
+        playlistDetailSongs = rows.map {
+            Song(
+                id = it.mediaStoreId,
+                title = it.title,
+                artist = it.artist,
+                uri = ContentUris.withAppendedId(collection, it.mediaStoreId)
+            )
+        }
     }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Simple Player", style = MaterialTheme.typography.headlineSmall)
-        Spacer(Modifier.height(12.dp))
+        Text("StrawHatTunes", style = MaterialTheme.typography.headlineSmall)
+
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TextButton(onClick = {
+                viewMode = ViewMode.LIBRARY
+                if (songs.isNotEmpty()) setQueue(songs, null, false)
+            }) { Text("Library") }
+            TextButton(onClick = { viewMode = ViewMode.PLAYLISTS }) { Text("Playlists") }
+
+            if (viewMode == ViewMode.PLAYLIST_DETAIL) {
+                TextButton(onClick = {
+                    viewMode = ViewMode.PLAYLISTS
+                    selectedPlaylist = null
+                }) { Text("Back") }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
 
         if (!hasPermission) {
             Text("Permission is required to list and play your device audio.")
@@ -192,14 +265,17 @@ fun SimpleMusicPlayerScreen() {
                     IconButton(
                         onClick = {
                             if (player.currentPosition > restartThresholdMs) player.seekTo(0)
-                            else player.seekToPreviousMediaItem() },
+                            else player.seekToPreviousMediaItem()
+                        },
                         enabled = player.hasPreviousMediaItem() || player.currentPosition > restartThresholdMs
                     ) {
                         Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous")
                     }
 
-                    Button(onClick = { if (player.isPlaying) player.pause() else player.play() },
-                        enabled = player.mediaItemCount > 0) {
+                    Button(
+                        onClick = { if (player.isPlaying) player.pause() else player.play() },
+                        enabled = player.mediaItemCount > 0
+                    ) {
                         Text(if (isPlaying) "Pause" else "Play")
                     }
 
@@ -217,24 +293,228 @@ fun SimpleMusicPlayerScreen() {
 
         Spacer(Modifier.height(16.dp))
 
-        Text("Library", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(8.dp))
+        when (viewMode) {
+            ViewMode.LIBRARY -> {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Library", style = MaterialTheme.typography.titleMedium)
+                    TextButton(onClick = { showCreatePlaylistDialog = true }) {
+                        Text("New playlist")
+                    }
+                }
 
-        LazyColumn(Modifier.fillMaxSize()) {
-            items(songs) { song ->
-                ListItem(
-                    headlineContent = { Text(song.title) },
-                    supportingContent = { song.artist?.let { Text(it) } },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            val index = songs.indexOf(song)
-                            nowPlaying = song
-                            player.seekTo(index, 0)
-                            player.play()
+                // Create playlist dialog
+                if (showCreatePlaylistDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showCreatePlaylistDialog = false },
+                        title = { Text("Create playlist") },
+                        text = {
+                            OutlinedTextField(
+                                value = newPlaylistName,
+                                onValueChange = { newPlaylistName = it },
+                                label = { Text("Playlist name") },
+                                singleLine = true
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    val name = newPlaylistName.trim()
+                                    if (name.isNotEmpty()) {
+                                        scope.launch {
+                                            withContext(Dispatchers.IO) {
+                                                dao.insertPlaylist(PlaylistEntity(name = name))
+                                            }
+                                            playlists =
+                                                withContext(Dispatchers.IO) { dao.getPlaylists() }
+                                        }
+                                        newPlaylistName = ""
+                                        showCreatePlaylistDialog = false
+                                    }
+                                }
+                            ) { Text("Create") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = {
+                                showCreatePlaylistDialog = false
+                                newPlaylistName = ""
+                            }) { Text("Cancel") }
                         }
-                )
-                Divider()
+                    )
+                }
+
+                // Add to playlist dialog (long-press)
+                addToPlaylistSong?.let { selectedSong ->
+                    AlertDialog(
+                        onDismissRequest = { addToPlaylistSong = null },
+                        title = { Text("Add to playlist") },
+                        text = {
+                            Column {
+                                if (playlists.isEmpty()) {
+                                    Text("No playlists yet. Create one first.")
+                                } else {
+                                    playlists.forEach { pl ->
+                                        Text(
+                                            text = pl.name,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    scope.launch {
+                                                        withContext(Dispatchers.IO) {
+                                                            dao.addSongToPlaylist(
+                                                                PlaylistSongEntity(
+                                                                    playlistId = pl.playlistId,
+                                                                    mediaStoreId = selectedSong.id,
+                                                                    title = selectedSong.title,
+                                                                    artist = selectedSong.artist
+                                                                )
+                                                            )
+                                                        }
+                                                        addToPlaylistSong = null
+                                                    }
+                                                }
+                                                .padding(vertical = 10.dp)
+                                        )
+                                        HorizontalDivider()
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { addToPlaylistSong = null }) { Text("Close") }
+                        }
+                    )
+                }
+
+                Spacer(Modifier.height(8.dp))
+
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(songs) { song ->
+                        ListItem(
+                            headlineContent = { Text(song.title) },
+                            supportingContent = { song.artist?.let { Text(it) } },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .combinedClickable(
+                                    onClick = {
+                                        val index = songs.indexOf(song)
+                                        nowPlaying = song
+                                        setQueue(songs, index, true)
+                                    },
+                                    onLongClick = {
+                                        addToPlaylistSong = song
+                                    }
+                                )
+                        )
+                        HorizontalDivider()
+                    }
+                }
+            }
+
+            ViewMode.PLAYLISTS -> {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Playlists", style = MaterialTheme.typography.titleMedium)
+                    TextButton(onClick = { showCreatePlaylistDialog = true }) {
+                        Text("New playlist")
+                    }
+                }
+
+                // Reuse create playlist dialog here too
+                if (showCreatePlaylistDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showCreatePlaylistDialog = false },
+                        title = { Text("Create playlist") },
+                        text = {
+                            OutlinedTextField(
+                                value = newPlaylistName,
+                                onValueChange = { newPlaylistName = it },
+                                label = { Text("Playlist name") },
+                                singleLine = true
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    val name = newPlaylistName.trim()
+                                    if (name.isNotEmpty()) {
+                                        scope.launch {
+                                            withContext(Dispatchers.IO) {
+                                                dao.insertPlaylist(PlaylistEntity(name = name))
+                                            }
+                                            playlists =
+                                                withContext(Dispatchers.IO) { dao.getPlaylists() }
+                                        }
+                                        newPlaylistName = ""
+                                        showCreatePlaylistDialog = false
+                                    }
+                                }
+                            ) { Text("Create") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = {
+                                showCreatePlaylistDialog = false
+                                newPlaylistName = ""
+                            }) { Text("Cancel") }
+                        }
+                    )
+                }
+
+                Spacer(Modifier.height(8.dp))
+
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(playlists) { pl ->
+                        ListItem(
+                            headlineContent = { Text(pl.name) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    selectedPlaylist = pl
+                                    viewMode = ViewMode.PLAYLIST_DETAIL
+                                }
+                        )
+                        HorizontalDivider()
+                    }
+                }
+            }
+
+            ViewMode.PLAYLIST_DETAIL -> {
+                val pl = selectedPlaylist
+
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(pl?.name ?: "Playlist", style = MaterialTheme.typography.titleMedium)
+                    TextButton(
+                        onClick = { viewMode = ViewMode.PLAYLISTS; selectedPlaylist = null },
+                    ) { Text("Back") }
+                }
+
+                Spacer(Modifier.height(8.dp))
+
+                TextButton(
+                    onClick = {
+                        if (playlistDetailSongs.isNotEmpty()) {
+                            setQueue(playlistDetailSongs, 0, true)
+                        }
+                    },
+                    enabled = playlistDetailSongs.isNotEmpty()
+                ) { Text("Play all") }
+
+                Spacer(Modifier.height(8.dp))
+
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(playlistDetailSongs) { song ->
+                        ListItem(
+                            headlineContent = { Text(song.title) },
+                            supportingContent = { song.artist?.let { Text(it) } },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val index = playlistDetailSongs.indexOf(song)
+                                    nowPlaying = song
+                                    setQueue(playlistDetailSongs, index, true)
+                                }
+                        )
+                        HorizontalDivider()
+                    }
+                }
             }
         }
     }
@@ -283,7 +563,6 @@ fun formatMs(ms: Long): String {
     val seconds = totalSeconds % 60
     return "%d:%02d".format(minutes, seconds)
 }
-
 
 private fun normalizeArtist(raw: String?): String? {
     val v = raw?.trim().orEmpty()
