@@ -1,11 +1,11 @@
 # Self Notes
 
-## Getting it run so far
+## Getting it to run so far
 
 ### Steps
 
 * Open project in Android Studio
-* Allow it finish building and installing
+* Allow it to finish building and installing
 * On your android phone,
     * enable developer mode by clicking the "Build" seven times info in the Settings > About > Software Info
     * Go back to the Main Settings
@@ -13,4 +13,7 @@
     * click 'Enable USB Debugging
     * connect phone to computer via USB
     * a pop up will say "blah blah blah", on the phone click "enable USB debugging on this device"
-* Click Run in Android studio to see the simple "Hello World" on your phone
+* Click Run in Android studio, let the gradle finish building, see the app on your phone
+
+### Adding music to a playlist
+* Long press on a song in the Library to add to a playlist
