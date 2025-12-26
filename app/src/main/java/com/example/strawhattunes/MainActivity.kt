@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.AlertDialog
@@ -62,6 +63,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
 
 data class Song(
     val id: Long,
@@ -99,10 +101,12 @@ fun SimpleMusicPlayerScreen() {
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
     var addToPlaylistSong by remember { mutableStateOf<Song?>(null) }
+    var removeFromPlaylistSong by remember { mutableStateOf<Song?>(null) }
     var viewMode by remember { mutableStateOf(ViewMode.LIBRARY) }
     var selectedPlaylist by remember { mutableStateOf<PlaylistEntity?>(null) }
     var playlistDetailSongs by remember { mutableStateOf<List<Song>>(emptyList()) }
     var queueSongs by remember { mutableStateOf<List<Song>>(emptyList()) }
+    var currentQueuePlaylistId by remember { mutableStateOf<Long?>(null) }
 
     val player = remember {
         ExoPlayer.Builder(context).build()
@@ -164,6 +168,7 @@ fun SimpleMusicPlayerScreen() {
     LaunchedEffect(songs) {
         if (songs.isNotEmpty() && queueSongs.isEmpty()) {
             setQueue(songs, null, false)
+            currentQueuePlaylistId = null
         }
     }
 
@@ -504,17 +509,76 @@ fun SimpleMusicPlayerScreen() {
                         ListItem(
                             headlineContent = { Text(song.title) },
                             supportingContent = { song.artist?.let { Text(it) } },
+                            trailingContent = {
+                                IconButton(onClick = { removeFromPlaylistSong = song }) {
+                                    Icon(
+                                        Icons.Filled.Delete,
+                                        contentDescription = "Remove from playlist"
+                                    )
+                                }
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
                                     val index = playlistDetailSongs.indexOf(song)
                                     nowPlaying = song
                                     setQueue(playlistDetailSongs, index, true)
+                                    currentQueuePlaylistId = selectedPlaylist?.playlistId
                                 }
                         )
                         HorizontalDivider()
                     }
                 }
+
+                val plEntity = selectedPlaylist
+
+                removeFromPlaylistSong?.let { songToRemove ->
+                    AlertDialog(
+                        onDismissRequest = { removeFromPlaylistSong = null },
+                        title = { Text("Remove from playlist?") },
+                        text = { Text("Remove \"${songToRemove.title}\" from this playlist?") },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    val playlistId = plEntity?.playlistId
+                                    if (playlistId == null) {
+                                        removeFromPlaylistSong = null
+                                        return@TextButton
+                                    }
+
+                                    scope.launch {
+                                        withContext(Dispatchers.IO) {
+                                            dao.removeSongFromPlaylist(playlistId, songToRemove.id)
+                                        }
+
+                                        val rows = withContext(Dispatchers.IO) { dao.getSongsInPlaylist(playlistId) }
+                                        val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                                        val updated = rows.map {
+                                            Song(
+                                                id = it.mediaStoreId,
+                                                title = it.title,
+                                                artist = it.artist,
+                                                uri = ContentUris.withAppendedId(collection, it.mediaStoreId)
+                                            )
+                                        }
+                                        playlistDetailSongs = updated
+
+                                        if (currentQueuePlaylistId == playlistId) {
+                                            val wasPlaying = player.isPlaying
+                                            setQueue(updated, null, wasPlaying)
+                                        }
+
+                                        removeFromPlaylistSong = null
+                                    }
+                                }
+                            ) { Text("Remove") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { removeFromPlaylistSong = null }) { Text("Cancel") }
+                        }
+                    )
+                }
+
             }
         }
     }
