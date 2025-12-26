@@ -63,7 +63,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
+import androidx.compose.material.icons.filled.Shuffle
 
 data class Song(
     val id: Long,
@@ -107,6 +107,7 @@ fun SimpleMusicPlayerScreen() {
     var playlistDetailSongs by remember { mutableStateOf<List<Song>>(emptyList()) }
     var queueSongs by remember { mutableStateOf<List<Song>>(emptyList()) }
     var currentQueuePlaylistId by remember { mutableStateOf<Long?>(null) }
+    var isShuffleOn by remember { mutableStateOf(false) }
 
     val player = remember {
         ExoPlayer.Builder(context).build()
@@ -177,6 +178,7 @@ fun SimpleMusicPlayerScreen() {
             positionMs = player.currentPosition.coerceAtLeast(0L)
             durationMs = player.duration.coerceAtLeast(0L)
             isPlaying = player.isPlaying
+            isShuffleOn = player.shuffleModeEnabled
             val index = player.currentMediaItemIndex
             if (index >= 0 && index < queueSongs.size) {
                 nowPlaying = queueSongs[index]
@@ -290,6 +292,18 @@ fun SimpleMusicPlayerScreen() {
                     ) {
                         Icon(Icons.Filled.SkipNext, contentDescription = "Next")
                     }
+
+                    IconButton(
+                        onClick = {
+                            player.shuffleModeEnabled = !player.shuffleModeEnabled
+                            isShuffleOn = player.shuffleModeEnabled
+                        },
+                        enabled = player.mediaItemCount > 1
+                    ) {
+                        Icon(Icons.Filled.Shuffle, contentDescription = "Shuffle")
+                    }
+                    if (isShuffleOn) Text("On")
+
                     Spacer(Modifier.width(12.dp))
                     Text("${formatMs(positionMs)} / ${formatMs(durationMs)}")
                 }
