@@ -482,14 +482,7 @@ fun SimpleMusicPlayerScreen() {
             }
 
             ViewMode.PLAYLIST_DETAIL -> {
-                val pl = selectedPlaylist
-
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(pl?.name ?: "Playlist", style = MaterialTheme.typography.titleMedium)
-                    TextButton(
-                        onClick = { viewMode = ViewMode.PLAYLISTS; selectedPlaylist = null },
-                    ) { Text("Back") }
-                }
+                //val pl = selectedPlaylist
 
                 Spacer(Modifier.height(8.dp))
 
