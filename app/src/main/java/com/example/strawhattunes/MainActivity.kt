@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -78,6 +79,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.SliderDefaults
 
 
 data class Song(
@@ -240,14 +243,23 @@ fun SimpleMusicPlayerScreen() {
             TextButton(onClick = {
                 viewMode = ViewMode.LIBRARY
                 if (songs.isNotEmpty()) setQueue(songs, null, false)
-            }) { Text("Library") }
-            TextButton(onClick = { viewMode = ViewMode.PLAYLISTS }) { Text("Playlists") }
+            },
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = Color.Green
+                )) { Text("Library") }
+            TextButton(onClick = { viewMode = ViewMode.PLAYLISTS },
+                    colors = ButtonDefaults.textButtonColors(
+                    contentColor = Color.Green
+                    )) { Text("Playlists") }
 
             if (viewMode == ViewMode.PLAYLIST_DETAIL) {
                 TextButton(onClick = {
                     viewMode = ViewMode.PLAYLISTS
                     selectedPlaylist = null
-                }) { Text("Back") }
+                },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = Color.Green
+                    )) { Text("Back") }
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -264,7 +276,8 @@ fun SimpleMusicPlayerScreen() {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { viewMode = ViewMode.NOW_PLAYING }
+                .clickable { viewMode = ViewMode.NOW_PLAYING },
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF000000))
         ) {
         Column(Modifier.padding(12.dp)) {
                 Text(
@@ -278,14 +291,18 @@ fun SimpleMusicPlayerScreen() {
 
                 Spacer(Modifier.height(8.dp))
 
-                // Seek bar
                 val safeDuration = durationMs.takeIf { it > 0 } ?: 1L
                 Slider(
                     value = (positionMs.toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f),
                     onValueChange = { frac ->
                         val newPos = (safeDuration * frac).toLong()
                         player.seekTo(newPos)
-                    }
+                    },
+                    colors = SliderDefaults.colors(
+                        activeTrackColor = Color.Green,
+                        inactiveTrackColor = Color(0xFF444444),
+                        thumbColor = Color.Green
+                    )
                 )
 
                 Row {
@@ -303,6 +320,9 @@ fun SimpleMusicPlayerScreen() {
 
                     Button(
                         onClick = { if (player.isPlaying) player.pause() else player.play() },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = Color.Green
+                        ),
                         enabled = player.mediaItemCount > 0
                     ) {
                         Text(if (isPlaying) "Pause" else "Play")
@@ -338,7 +358,10 @@ fun SimpleMusicPlayerScreen() {
             ViewMode.LIBRARY -> {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Library", style = MaterialTheme.typography.titleMedium)
-                    TextButton(onClick = { showCreatePlaylistDialog = true }) {
+                    TextButton(onClick = { showCreatePlaylistDialog = true },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = Color.Green
+                        )) {
                         Text("New playlist")
                     }
                 }
@@ -413,7 +436,7 @@ fun SimpleMusicPlayerScreen() {
                                                 }
                                                 .padding(vertical = 10.dp)
                                         )
-                                        HorizontalDivider()
+                                        HorizontalDivider(color= Color.Green)
                                     }
                                 }
                             }
@@ -444,7 +467,7 @@ fun SimpleMusicPlayerScreen() {
                                         embeddedArtCache = embeddedArtCache,
                                         modifier = Modifier.fillMaxSize()
                                     )
-                                    
+
                                     if (song.artUri == null && embeddedArtCache[song.id] == null) {
                                         Icon(Icons.Filled.MusicNote, contentDescription = null)
                                     }
@@ -464,7 +487,7 @@ fun SimpleMusicPlayerScreen() {
                                     }
                                 )
                         )
-                        HorizontalDivider()
+                        HorizontalDivider(color= Color.Green)
                     }
                 }
             }
@@ -472,7 +495,10 @@ fun SimpleMusicPlayerScreen() {
             ViewMode.PLAYLISTS -> {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Playlists", style = MaterialTheme.typography.titleMedium)
-                    TextButton(onClick = { showCreatePlaylistDialog = true }) {
+                    TextButton(onClick = { showCreatePlaylistDialog = true },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = Color.Green
+                        )) {
                         Text("New playlist")
                     }
                 }
@@ -529,14 +555,12 @@ fun SimpleMusicPlayerScreen() {
                                     viewMode = ViewMode.PLAYLIST_DETAIL
                                 }
                         )
-                        HorizontalDivider()
+                        HorizontalDivider(color= Color.Green)
                     }
                 }
             }
 
             ViewMode.PLAYLIST_DETAIL -> {
-                //val pl = selectedPlaylist
-
                 Spacer(Modifier.height(8.dp))
 
                 TextButton(
@@ -545,6 +569,9 @@ fun SimpleMusicPlayerScreen() {
                             setQueue(playlistDetailSongs, 0, true)
                         }
                     },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = Color.Green
+                    ),
                     enabled = playlistDetailSongs.isNotEmpty()
                 ) { Text("Play all") }
 
@@ -592,7 +619,7 @@ fun SimpleMusicPlayerScreen() {
                                     currentQueuePlaylistId = selectedPlaylist?.playlistId
                                 }
                         )
-                        HorizontalDivider()
+                        HorizontalDivider(color= Color.Green)
                     }
                 }
 
@@ -654,7 +681,10 @@ fun SimpleMusicPlayerScreen() {
 
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Now Playing", style = MaterialTheme.typography.titleMedium)
-                    TextButton(onClick = { viewMode = ViewMode.LIBRARY }) { Text("Back") }
+                    TextButton(onClick = { viewMode = ViewMode.LIBRARY },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = Color.Green
+                        )) { Text("Back") }
                 }
 
                 Spacer(Modifier.height(12.dp))
