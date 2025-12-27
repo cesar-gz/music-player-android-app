@@ -3,6 +3,8 @@ package com.example.strawhattunes
 import android.Manifest
 import android.content.ContentUris
 import android.content.pm.PackageManager
+import android.media.MediaMetadataRetriever
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
@@ -12,6 +14,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,11 +26,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.AlertDialog
@@ -48,28 +55,36 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateMap
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
+import coil.compose.AsyncImage
 import com.example.strawhattunes.ui.theme.StrawHatTunesTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import androidx.compose.material.icons.filled.Shuffle
+
 
 data class Song(
     val id: Long,
     val title: String,
     val artist: String?,
-    val uri: android.net.Uri
+    val uri: Uri,
+    val artUri: Uri?
 )
 
 enum class ViewMode { LIBRARY, PLAYLISTS, PLAYLIST_DETAIL }
@@ -152,6 +167,7 @@ fun SimpleMusicPlayerScreen() {
     var songs by remember { mutableStateOf<List<Song>>(emptyList()) }
     var nowPlaying by remember { mutableStateOf<Song?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
+    val embeddedArtCache = remember { mutableStateMapOf<Long, ByteArray?>() }
 
     LaunchedEffect(Unit) {
         if (!hasPermission) permissionLauncher.launch(permission)
@@ -200,16 +216,17 @@ fun SimpleMusicPlayerScreen() {
 
     LaunchedEffect(selectedPlaylist?.playlistId) {
         val pl = selectedPlaylist ?: return@LaunchedEffect
-
         val rows = withContext(Dispatchers.IO) { dao.getSongsInPlaylist(pl.playlistId) }
         val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
 
         playlistDetailSongs = rows.map {
+            val artUri = albumArtUriForTrack(context, it.mediaStoreId)
             Song(
                 id = it.mediaStoreId,
                 title = it.title,
                 artist = it.artist,
-                uri = ContentUris.withAppendedId(collection, it.mediaStoreId)
+                uri = ContentUris.withAppendedId(collection, it.mediaStoreId),
+                artUri = artUri
             )
         }
     }
@@ -242,7 +259,6 @@ fun SimpleMusicPlayerScreen() {
             return@Column
         }
 
-        // Now Playing
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp)) {
                 Text(
@@ -321,7 +337,6 @@ fun SimpleMusicPlayerScreen() {
                     }
                 }
 
-                // Create playlist dialog
                 if (showCreatePlaylistDialog) {
                     AlertDialog(
                         onDismissRequest = { showCreatePlaylistDialog = false },
@@ -361,7 +376,6 @@ fun SimpleMusicPlayerScreen() {
                     )
                 }
 
-                // Add to playlist dialog (long-press)
                 addToPlaylistSong?.let { selectedSong ->
                     AlertDialog(
                         onDismissRequest = { addToPlaylistSong = null },
@@ -411,6 +425,26 @@ fun SimpleMusicPlayerScreen() {
                         ListItem(
                             headlineContent = { Text(song.title) },
                             supportingContent = { song.artist?.let { Text(it) } },
+                            leadingContent = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color.Black),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    SongArtThumb(
+                                        song = song,
+                                        embeddedArtCache = embeddedArtCache,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+
+                                    // If you had an icon placeholder, keep it here:
+                                    if (song.artUri == null && embeddedArtCache[song.id] == null) {
+                                        Icon(Icons.Filled.MusicNote, contentDescription = null)
+                                    }
+                                }
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .combinedClickable(
@@ -437,7 +471,6 @@ fun SimpleMusicPlayerScreen() {
                     }
                 }
 
-                // Reuse create playlist dialog here too
                 if (showCreatePlaylistDialog) {
                     AlertDialog(
                         onDismissRequest = { showCreatePlaylistDialog = false },
@@ -524,6 +557,26 @@ fun SimpleMusicPlayerScreen() {
                                     )
                                 }
                             },
+                            leadingContent = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color.LightGray),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    SongArtThumb(
+                                        song = song,
+                                        embeddedArtCache = embeddedArtCache,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+
+                                    // If you had an icon placeholder, keep it here:
+                                    if (song.artUri == null && embeddedArtCache[song.id] == null) {
+                                        Icon(Icons.Filled.MusicNote, contentDescription = null,tint = Color.White)
+                                    }
+                                }
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
@@ -561,11 +614,13 @@ fun SimpleMusicPlayerScreen() {
                                         val rows = withContext(Dispatchers.IO) { dao.getSongsInPlaylist(playlistId) }
                                         val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
                                         val updated = rows.map {
+                                            val trackUri = ContentUris.withAppendedId(collection, it.mediaStoreId)
                                             Song(
                                                 id = it.mediaStoreId,
                                                 title = it.title,
                                                 artist = it.artist,
-                                                uri = ContentUris.withAppendedId(collection, it.mediaStoreId)
+                                                uri = trackUri,
+                                                artUri = albumArtUriForTrack(context, it.mediaStoreId)
                                             )
                                         }
                                         playlistDetailSongs = updated
@@ -591,14 +646,46 @@ fun SimpleMusicPlayerScreen() {
     }
 }
 
+@Composable
+fun SongArtThumb(
+    song: Song,
+    embeddedArtCache: SnapshotStateMap<Long, ByteArray?>,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+
+    LaunchedEffect(song.id, song.uri) {
+        if (!embeddedArtCache.containsKey(song.id)) {
+            embeddedArtCache[song.id] = loadEmbeddedArtBytes(context, song.uri)
+        }
+    }
+
+    val embeddedBytes = embeddedArtCache[song.id]
+    val model: Any? = song.artUri ?: embeddedBytes
+
+    Box(modifier = modifier) {
+        if (model != null) {
+            AsyncImage(
+                model = model,
+                contentDescription = "Album art",
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            // If you kept your placeholder UI from Step 1, leave it; otherwise add an icon here.
+            // (No-op here because you already render gray background in the caller.)
+        }
+    }
+}
+
+
 fun loadSongsFromMediaStore(context: android.content.Context): List<Song> {
     val songs = mutableListOf<Song>()
-
     val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
     val projection = arrayOf(
         MediaStore.Audio.Media._ID,
         MediaStore.Audio.Media.TITLE,
-        MediaStore.Audio.Media.ARTIST
+        MediaStore.Audio.Media.ARTIST,
+        MediaStore.Audio.Media.ALBUM_ID
     )
     val selection = "${MediaStore.Audio.Media.IS_MUSIC}=1"
     val sortOrder = "${MediaStore.Audio.Media.TITLE} ASC"
@@ -613,14 +700,25 @@ fun loadSongsFromMediaStore(context: android.content.Context): List<Song> {
         val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
         val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
         val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+        val albumIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
 
         while (cursor.moveToNext()) {
             val id = cursor.getLong(idCol)
             val title = cursor.getString(titleCol) ?: "Unknown"
             val artist = normalizeArtist(cursor.getString(artistCol))
-
+            val albumId = cursor.getLong(albumIdCol)
+            val candidateArtUri = ContentUris.withAppendedId(
+                "content://media/external/audio/albumart".toUri(),
+                albumId
+            )
+            val artUri = try {
+                context.contentResolver.openInputStream(candidateArtUri)?.close()
+                candidateArtUri
+            } catch (_: Exception) {
+                null
+            }
             val contentUri = ContentUris.withAppendedId(collection, id)
-            songs.add(Song(id, title, artist, contentUri))
+            songs.add(Song(id, title, artist, contentUri, artUri))
         }
     }
 
@@ -635,10 +733,55 @@ fun formatMs(ms: Long): String {
     return "%d:%02d".format(minutes, seconds)
 }
 
+fun albumArtUriForTrack(context: android.content.Context, mediaStoreId: Long): Uri? {
+    val projection = arrayOf(MediaStore.Audio.Media.ALBUM_ID)
+    val selection = "${MediaStore.Audio.Media._ID}=?"
+    val args = arrayOf(mediaStoreId.toString())
+
+    context.contentResolver.query(
+        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+        projection,
+        selection,
+        args,
+        null
+    )?.use { c ->
+        if (c.moveToFirst()) {
+            val albumId = c.getLong(c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID))
+            val candidateArtUri = ContentUris.withAppendedId(
+                "content://media/external/audio/albumart".toUri(),
+                albumId
+            )
+
+            // Validate that this URI actually resolves
+            return try {
+                context.contentResolver.openInputStream(candidateArtUri)?.close()
+                candidateArtUri
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+    return null
+}
+
+suspend fun loadEmbeddedArtBytes(context: android.content.Context, songUri: Uri): ByteArray? {
+    return withContext(Dispatchers.IO) {
+        val mmr = MediaMetadataRetriever()
+        try {
+            mmr.setDataSource(context, songUri)
+            mmr.embeddedPicture // returns ByteArray? (null if none)
+        } catch (_: Exception) {
+            null
+        } finally {
+            try { mmr.release() } catch (_: Exception) {}
+        }
+    }
+}
+
 private fun normalizeArtist(raw: String?): String? {
     val v = raw?.trim().orEmpty()
     if (v.isBlank()) return null
     if (v.equals("<unknown>", ignoreCase = true)) return null
-    if (v.equals(MediaStore.UNKNOWN_STRING, ignoreCase = true)) return null // some devices use this
+    if (v.equals(MediaStore.UNKNOWN_STRING, ignoreCase = true)) return null
     return v
 }
