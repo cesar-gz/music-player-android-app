@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -87,7 +88,8 @@ data class Song(
     val artUri: Uri?
 )
 
-enum class ViewMode { LIBRARY, PLAYLISTS, PLAYLIST_DETAIL }
+enum class ViewMode { LIBRARY, PLAYLISTS, PLAYLIST_DETAIL, NOW_PLAYING }
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -259,8 +261,12 @@ fun SimpleMusicPlayerScreen() {
             return@Column
         }
 
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp)) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { viewMode = ViewMode.NOW_PLAYING }
+        ) {
+        Column(Modifier.padding(12.dp)) {
                 Text(
                     nowPlaying?.title ?: "Nothing playing",
                     style = MaterialTheme.typography.titleMedium
@@ -438,8 +444,7 @@ fun SimpleMusicPlayerScreen() {
                                         embeddedArtCache = embeddedArtCache,
                                         modifier = Modifier.fillMaxSize()
                                     )
-
-                                    // If you had an icon placeholder, keep it here:
+                                    
                                     if (song.artUri == null && embeddedArtCache[song.id] == null) {
                                         Icon(Icons.Filled.MusicNote, contentDescription = null)
                                     }
@@ -452,6 +457,7 @@ fun SimpleMusicPlayerScreen() {
                                         val index = songs.indexOf(song)
                                         nowPlaying = song
                                         setQueue(songs, index, true)
+                                        viewMode = ViewMode.NOW_PLAYING
                                     },
                                     onLongClick = {
                                         addToPlaylistSong = song
@@ -562,7 +568,7 @@ fun SimpleMusicPlayerScreen() {
                                     modifier = Modifier
                                         .size(56.dp)
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(Color.LightGray),
+                                        .background(Color.Black),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     SongArtThumb(
@@ -571,7 +577,6 @@ fun SimpleMusicPlayerScreen() {
                                         modifier = Modifier.fillMaxSize()
                                     )
 
-                                    // If you had an icon placeholder, keep it here:
                                     if (song.artUri == null && embeddedArtCache[song.id] == null) {
                                         Icon(Icons.Filled.MusicNote, contentDescription = null,tint = Color.White)
                                     }
@@ -583,6 +588,7 @@ fun SimpleMusicPlayerScreen() {
                                     val index = playlistDetailSongs.indexOf(song)
                                     nowPlaying = song
                                     setQueue(playlistDetailSongs, index, true)
+                                    viewMode = ViewMode.NOW_PLAYING
                                     currentQueuePlaylistId = selectedPlaylist?.playlistId
                                 }
                         )
@@ -642,6 +648,41 @@ fun SimpleMusicPlayerScreen() {
                 }
 
             }
+
+            ViewMode.NOW_PLAYING -> {
+                val song = nowPlaying
+
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Now Playing", style = MaterialTheme.typography.titleMedium)
+                    TextButton(onClick = { viewMode = ViewMode.LIBRARY }) { Text("Back") }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.Black),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (song != null) {
+                        SongArtThumb(
+                            song = song,
+                            embeddedArtCache = embeddedArtCache,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        if (song.artUri == null && embeddedArtCache[song.id] == null) {
+                            // Use your placeholder PNG or icon
+                            Icon(Icons.Filled.MusicNote, contentDescription = null, tint = Color.White)
+                        }
+                    } else {
+                        Icon(Icons.Filled.MusicNote, contentDescription = null, tint = Color.White)
+                    }
+                }
+            }
+
         }
     }
 }
@@ -671,8 +712,7 @@ fun SongArtThumb(
                 modifier = Modifier.fillMaxSize()
             )
         } else {
-            // If you kept your placeholder UI from Step 1, leave it; otherwise add an icon here.
-            // (No-op here because you already render gray background in the caller.)
+            // You can add an icon here
         }
     }
 }
@@ -752,7 +792,6 @@ fun albumArtUriForTrack(context: android.content.Context, mediaStoreId: Long): U
                 albumId
             )
 
-            // Validate that this URI actually resolves
             return try {
                 context.contentResolver.openInputStream(candidateArtUri)?.close()
                 candidateArtUri
